@@ -20,6 +20,11 @@ interface Owned {
   audio: boolean;
 }
 
+const zzgfDurations = [
+  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+];
+const zzgfResolutions: (`${number}p` | `${number}k`)[] = ["480p", "720p", "1080p", "2k", "4k"];
+
 const modelList: Owned[] = [
   // ================== 火山引擎/豆包系列 ==================
   // doubao-seedance-1-5-pro 文生视频/图生视频
@@ -488,7 +493,7 @@ const modelList: Owned[] = [
   {
     manufacturer: "zzgf",
     model: "sora-2",
-    durationResolutionMap: [{ duration: [4, 8, 10, 12], resolution: ["720p", "1080p"] }],
+    durationResolutionMap: [{ duration: zzgfDurations, resolution: zzgfResolutions }],
     aspectRatio: ["16:9", "9:16"],
     type: ["singleImage", "startEndRequired", "multiImage"],
     audio: false,
@@ -496,7 +501,7 @@ const modelList: Owned[] = [
   {
     manufacturer: "zzgf",
     model: "sora-2-pro",
-    durationResolutionMap: [{ duration: [4, 8, 10, 12, 15, 25], resolution: ["720p", "1080p"] }],
+    durationResolutionMap: [{ duration: zzgfDurations, resolution: zzgfResolutions }],
     aspectRatio: ["16:9", "9:16"],
     type: ["singleImage", "startEndRequired", "multiImage"],
     audio: false,

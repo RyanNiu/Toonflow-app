@@ -1,4 +1,4 @@
-// @db-hash 4a7c6b3e541a7bc661dce16c2ea13384
+// @db-hash 1d9c3a1acf30981c2910bfd1847191b2
 //该文件由脚本自动生成，请勿手动修改
 
 export interface t_aiModelMap {
@@ -41,6 +41,7 @@ export interface t_config {
   'manufacturer'?: string | null;
   'model'?: string | null;
   'modelType'?: string | null;
+  'name'?: string | null;
   'type'?: string | null;
 }
 export interface t_image {
@@ -164,7 +165,6 @@ export interface t_video {
   'time'?: number | null;
 }
 export interface t_videoConfig {
-  'aiConfigId'?: number | null;
   'audioEnabled'?: number | null;
   'createTime'?: number | null;
   'duration'?: number | null;

@@ -52,8 +52,8 @@ export default async function startServe(randomPort: Boolean = false) {
     const token = rawToken.replace("Bearer ", "");
     // 白名单路径
     if (req.path === "/other/login") return next();
-    // 静态图片等资源不需要 token，避免 <img> 直接访问被 401 拦截
-    if (req.method === "GET" && /\.(png|jpe?g|jpg|gif|webp|svg)$/i.test(req.path)) {
+    // 静态文件资源不需要 token（包含视频/音频/压缩包等）
+    if (req.method === "GET" && /\.[^/]+$/i.test(req.path)) {
       return next();
     }
 
