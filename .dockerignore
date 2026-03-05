@@ -1,0 +1,16 @@
+/dist
+/node_modules
+/build
+/uploads
+/logs
+.git
+.gitignore
+*.md
+LICENSE
+NOTICES.txt
+electron-builder.yml
+backup
+# env
+docs
+*.log
+# .env*
