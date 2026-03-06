@@ -23,7 +23,7 @@ interface Owned {
 const zzgfDurations = [
   2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
 ];
-const zzgfResolutions: (`${number}p` | `${number}k`)[] = ["480p", "720p", "1080p", "2k", "4k"];
+const zzgfResolutions: (`${number}p` | `${number}k`)[] = ["480p", "720p", "1080p", "1k", "2k", "4k"];
 
 const modelList: Owned[] = [
   // ================== 火山引擎/豆包系列 ==================

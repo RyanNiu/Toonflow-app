@@ -4,16 +4,38 @@ import u from "@/utils";
 import Storyboard from "@/agents/storyboard";
 import { getAccountId } from "@/middleware/middleware";
 import { getProjectForAccount } from "@/utils/projectAccess";
+import jwt from "jsonwebtoken";
 const router = express.Router();
 expressWs(router as unknown as Application);
+
+async function ensureWsAccountId(req: express.Request): Promise<number | null> {
+  const accountId = getAccountId(req as any);
+  if (accountId) return accountId;
+  const tokenSecret = process.env.JWT_SECRET;
+  if (!tokenSecret) return null;
+  const rawToken = req.headers.authorization || (req.query.token as string) || "";
+  const token = rawToken.replace("Bearer ", "");
+  if (!token) return null;
+  try {
+    const decoded: any = jwt.verify(token, tokenSecret);
+    const decodedAccountId = Number(decoded?.account_id ?? decoded?.id);
+    if (!decodedAccountId) return null;
+    const user = await u.db("t_user").where({ id: decodedAccountId }).whereNull("deleted_at").first();
+    if (!user) return null;
+    (req as any).user = decoded;
+    return decodedAccountId;
+  } catch {
+    return null;
+  }
+}
 
 router.ws("/", async (ws, req) => {
   let agent: Storyboard;
 
-  const accountId = getAccountId(req as any);
+  const accountId = await ensureWsAccountId(req as any);
   if (!accountId) {
     ws.send(JSON.stringify({ type: "error", data: "未登录" }));
-    ws.close(401, "未登录");
+    ws.close(1008, "未登录");
     return;
   }
 
@@ -21,20 +43,20 @@ router.ws("/", async (ws, req) => {
   const scriptId = req.query.scriptId;
   if (!projectId || typeof projectId !== "string" || !scriptId || typeof scriptId !== "string") {
     ws.send(JSON.stringify({ type: "error", data: "项目ID或脚本ID缺失" }));
-    ws.close(500, "项目ID或脚本ID缺失");
+    ws.close(1008, "项目ID或脚本ID缺失");
     return;
   }
 
   const project = await getProjectForAccount(accountId, Number(projectId));
   if (!project) {
     ws.send(JSON.stringify({ type: "error", data: "项目不存在" }));
-    ws.close(404, "项目不存在");
+    ws.close(1008, "项目不存在");
     return;
   }
   const script = await u.db("t_script").where({ id: Number(scriptId), projectId: Number(projectId) }).first();
   if (!script) {
     ws.send(JSON.stringify({ type: "error", data: "剧本不存在" }));
-    ws.close(404, "剧本不存在");
+    ws.close(1008, "剧本不存在");
     return;
   }
 
@@ -134,12 +156,12 @@ router.ws("/", async (ws, req) => {
       data = JSON.parse(rawData);
     } catch (error) {
       ws.send(JSON.stringify({ type: "error", data: "数据解析异常" }));
-      ws.close(500, "数据解析异常");
+      ws.close(1007, "数据解析异常");
       return;
     }
     if (!data) {
       ws.send(JSON.stringify({ type: "error", data: "数据格式错误" }));
-      ws.close(500, "数据格式错误");
+      ws.close(1003, "数据格式错误");
       return;
     }
     const msg = data.data;

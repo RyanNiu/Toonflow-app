@@ -4,30 +4,62 @@ import u from "@/utils";
 import OutlineScript from "@/agents/outlineScript";
 import { getAccountId } from "@/middleware/middleware";
 import { getProjectForAccount } from "@/utils/projectAccess";
+import jwt from "jsonwebtoken";
 const router = express.Router();
 expressWs(router as unknown as Application);
 
+async function ensureWsAccountId(req: express.Request): Promise<number | null> {
+  const accountId = getAccountId(req as any);
+  if (accountId) return accountId;
+  const tokenSecret = process.env.JWT_SECRET;
+  if (!tokenSecret) return null;
+  const rawToken = req.headers.authorization || (req.query.token as string) || "";
+  const token = rawToken.replace("Bearer ", "");
+  if (!token) return null;
+  try {
+    const decoded: any = jwt.verify(token, tokenSecret);
+    const decodedAccountId = Number(decoded?.account_id ?? decoded?.id);
+    if (!decodedAccountId) return null;
+    const user = await u.db("t_user").where({ id: decodedAccountId }).whereNull("deleted_at").first();
+    if (!user) return null;
+    (req as any).user = decoded;
+    return decodedAccountId;
+  } catch {
+    return null;
+  }
+}
+
 router.ws("/", async (ws, req) => {
   let agent: OutlineScript;
+  const rawAuth = req.headers.authorization;
+  const queryToken = req.query.token;
+  console.log(
+    "[agentsOutline][ws] token header:",
+    Boolean(rawAuth),
+    "query token:",
+    Boolean(queryToken),
+    "projectId:",
+    req.query.projectId,
+  );
 
-  const accountId = getAccountId(req as any);
+  const accountId = await ensureWsAccountId(req as any);
   if (!accountId) {
     ws.send(JSON.stringify({ type: "error", data: "未登录" }));
-    ws.close(401, "未登录");
+    ws.close(1008, "未登录");
     return;
   }
 
   const projectId = req.query.projectId;
   if (!projectId || typeof projectId !== "string") {
     ws.send(JSON.stringify({ type: "error", data: "项目ID缺失" }));
-    ws.close(500, "项目ID缺失");
+    ws.close(1008, "项目ID缺失");
     return;
   }
 
   const project = await getProjectForAccount(accountId, Number(projectId));
   if (!project) {
     ws.send(JSON.stringify({ type: "error", data: "项目不存在" }));
-    ws.close(404, "项目不存在");
+    ws.close(1008, "项目不存在");
     return;
   }
 
@@ -96,12 +128,12 @@ router.ws("/", async (ws, req) => {
       data = JSON.parse(rawData);
     } catch (error) {
       ws.send(JSON.stringify({ type: "error", data: "数据解析异常" }));
-      ws.close(500, "数据解析异常");
+      ws.close(1007, "数据解析异常");
       return;
     }
     if (!data) {
       ws.send(JSON.stringify({ type: "error", data: "数据格式错误" }));
-      ws.close(500, "数据格式错误");
+      ws.close(1003, "数据格式错误");
       return;
     }
     const novelData = await u

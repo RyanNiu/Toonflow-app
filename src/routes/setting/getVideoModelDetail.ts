@@ -10,7 +10,7 @@ const ZZGF_DURATION_RESOLUTION_MAP = [
     duration: [
       2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
     ],
-    resolution: ["480p", "720p", "1080p", "2k", "4k"],
+    resolution: ["480p", "720p", "1080p", "1k", "2k", "4k"],
   },
 ];
 const ZZGF_ASPECT_RATIO = ["16:9", "9:16"];
@@ -68,7 +68,7 @@ export default router.post("/", async (req, res) => {
   const otherConfig = {
     manufacturer: "other",
     model: "",
-    durationResolutionMap: [{ duration: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], resolution: ["480p", "720p", "1080p"] }],
+    durationResolutionMap: ZZGF_DURATION_RESOLUTION_MAP,
     aspectRatio: ["16:9", "4:3", "1:1", "3:4", "9:16", "21:9"],
     type: ["text", "endFrameOptional", "singleImage", "multiImage"],
     audio: true,
