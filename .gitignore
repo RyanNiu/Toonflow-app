@@ -43,12 +43,9 @@ db.sqlite
 db.sqlite-shm
 db.sqlite-wal
 
-web/*
 
 .devtools
 
 .agent
 
 *.tar
-
-/scripts/web
