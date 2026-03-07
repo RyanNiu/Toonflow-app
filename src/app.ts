@@ -56,6 +56,10 @@ export default async function startServe(randomPort: Boolean = false) {
     if (req.method === "GET" && /\.[^/]+$/i.test(req.path)) {
       return next();
     }
+    // Electron 下所有 GET 放行，便于前端 SPA 通过 http://localhost 加载（避免 file:// 白屏）
+    if (typeof process.versions?.electron !== "undefined" && req.method === "GET") {
+      return next();
+    }
 
     if (!token) return res.status(401).send({ message: "未提供token" });
     try {
@@ -85,6 +89,39 @@ export default async function startServe(randomPort: Boolean = false) {
   const router = await import("@/router");
   await router.default(app);
 
+  // Electron：由后端提供前端静态资源，窗口加载 http://localhost:port/ 避免 file:// 下 Vue Router 白屏
+  if (typeof process.versions?.electron !== "undefined") {
+    const { app: electronApp } = require("electron");
+    const isDev = process.env.NODE_ENV === "dev" || !electronApp.isPackaged;
+    const webDir = isDev
+      ? path.join(process.cwd(), "scripts", "web")
+      : path.join(electronApp.getAppPath(), "scripts", "web");
+    if (fs.existsSync(webDir)) {
+      // 前端资源不缓存，便于更新 Robou-web 构建后立即生效
+      app.use((_req, res, next) => {
+        res.set("Cache-Control", "no-store, no-cache, must-revalidate");
+        next();
+      });
+      app.use(express.static(webDir, { index: false }));
+      app.get(/.*/, (req, res) => {
+        res.set("Cache-Control", "no-store, no-cache, must-revalidate");
+        res.set(
+          "Content-Security-Policy",
+          [
+            "default-src 'self'",
+            "connect-src 'self' http://localhost:* ws://localhost:* wss://localhost:*",
+            "script-src 'self'",
+            "style-src 'self' 'unsafe-inline'",
+            "img-src 'self' data: blob:",
+            "font-src 'self'",
+            "frame-ancestors 'self'",
+          ].join("; ")
+        );
+        res.sendFile(path.join(webDir, "index.html"));
+      });
+    }
+  }
+
   // 404 处理
   app.use((_, res, next: NextFunction) => {
     return res.status(404).send({ message: "Not Found" });
@@ -98,19 +135,60 @@ export default async function startServe(randomPort: Boolean = false) {
     res.status(err.status || 500).send(err);
   });
 
-  const port = randomPort ? 0 : parseInt(process.env.PORT || "60000");
-  return await new Promise((resolve, reject) => {
-    server = app.listen(port, async (v) => {
-      const address = server?.address();
-      const realPort = typeof address === "string" ? address : address?.port;
-      console.log(`[服务启动成功]: http://localhost:${realPort}`);
-      resolve(realPort);
+  const preferredPort = randomPort ? 0 : parseInt(process.env.PORT || "60000", 10);
+  const portList = randomPort ? [0] : [
+    preferredPort,
+    ...Array.from({ length: 100 }, (_, i) => preferredPort + 1 + i),
+    0,
+  ];
+
+  const tryListenOne = (port: number): Promise<number> =>
+    new Promise((resolve, reject) => {
+      server = app.listen(port, () => {
+        const address = server?.address();
+        const realPort = typeof address === "string" ? address : (address as any)?.port;
+        console.log(`[服务启动成功]: http://localhost:${realPort}`);
+        resolve(realPort);
+      });
+      server.once("error", (err: NodeJS.ErrnoException) => {
+        if (err.code === "EADDRINUSE") {
+          reject(Object.assign(err, { code: "EADDRINUSE" as const }));
+        } else {
+          console.error(`[服务监听失败] 端口 ${port}:`, err.message);
+          reject(err);
+        }
+      });
     });
-    server.on("error", (err: NodeJS.ErrnoException) => {
-      console.error(`[服务监听失败] 端口 ${port} 可能被占用:`, err.message);
-      reject(err);
+
+  const closeCurrentServer = (): Promise<void> =>
+    new Promise((resolve) => {
+      if (!server) return resolve();
+      server.removeAllListeners();
+      server.close(() => resolve());
+      server = undefined;
     });
-  });
+
+  for (let i = 0; i < portList.length; i++) {
+    const port = portList[i];
+    try {
+      const realPort = await tryListenOne(port);
+      // Electron 下需立即返回端口让 main 创建窗口；仅 yarn dev 直跑时挂起以保持进程
+      if (typeof process.versions?.electron !== "undefined") return realPort;
+      await new Promise<never>(() => {});
+      return realPort;
+    } catch (e: any) {
+      if (e?.code === "EADDRINUSE") {
+        console.warn(`[端口 ${port} 已被占用] 尝试下一个端口...`);
+        await closeCurrentServer();
+        if (i < portList.length - 1) {
+          await new Promise((r) => setTimeout(r, 200));
+        }
+      } else {
+        throw e;
+      }
+    }
+  }
+  throw new Error("无法绑定任何端口");
 }
 
 // 支持await关闭
@@ -129,4 +207,14 @@ export function closeServe(): Promise<void> {
 }
 
 const isElectron = typeof process.versions?.electron !== "undefined";
-if (!isElectron) startServe();
+if (!isElectron) {
+  (async () => {
+    try {
+      await startServe();
+      // 服务运行中，进程由 server 保持
+    } catch (err) {
+      console.error("[启动失败]", err);
+      process.exit(1);
+    }
+  })();
+}

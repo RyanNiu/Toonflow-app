@@ -76,6 +76,12 @@ router.ws("/", async (ws, req) => {
     }
   }
   agent.history = [];
+  // 恢复上次保存的分镜状态（片段+分镜及生成图），避免刷新后重来
+  const restored = await agent.loadState();
+  if (restored) {
+    ws.send(JSON.stringify({ type: "segmentsUpdated", data: agent.getSegmentsData() }));
+    ws.send(JSON.stringify({ type: "shotsUpdated", data: agent.getShotsData() }));
+  }
   // 监听各类事件
   // 流式传输：每个token
   agent.emitter.on("data", (text) => {
@@ -115,14 +121,34 @@ router.ws("/", async (ws, req) => {
     ws.send(JSON.stringify({ type: "error", data: err.toString() }));
   });
 
-  // 片段数据更新
+  // 片段数据更新：推给前端并防抖持久化
+  let saveSegmentsTimer: ReturnType<typeof setTimeout> | null = null;
   agent.emitter.on("segmentsUpdated", (data) => {
     ws.send(JSON.stringify({ type: "segmentsUpdated", data }));
+    if (saveSegmentsTimer) clearTimeout(saveSegmentsTimer);
+    saveSegmentsTimer = setTimeout(async () => {
+      saveSegmentsTimer = null;
+      try {
+        await agent.saveState();
+      } catch (e) {
+        console.error("[storyboard] saveState after segmentsUpdated failed:", e);
+      }
+    }, 2000);
   });
 
-  // 分镜数据更新
+  // 分镜数据更新：推给前端并防抖持久化
+  let saveStateTimer: ReturnType<typeof setTimeout> | null = null;
   agent.emitter.on("shotsUpdated", (data) => {
     ws.send(JSON.stringify({ type: "shotsUpdated", data }));
+    if (saveStateTimer) clearTimeout(saveStateTimer);
+    saveStateTimer = setTimeout(async () => {
+      saveStateTimer = null;
+      try {
+        await agent.saveState();
+      } catch (e) {
+        console.error("[storyboard] saveState after shotsUpdated failed:", e);
+      }
+    }, 2000);
   });
 
   // 分镜图生成开始
@@ -135,9 +161,14 @@ router.ws("/", async (ws, req) => {
     ws.send(JSON.stringify({ type: "shotImageGenerateProgress", data }));
   });
 
-  // 分镜图生成完成
-  agent.emitter.on("shotImageGenerateComplete", (data) => {
+  // 分镜图生成完成：推给前端并持久化，刷新后可恢复
+  agent.emitter.on("shotImageGenerateComplete", async (data) => {
     ws.send(JSON.stringify({ type: "shotImageGenerateComplete", data }));
+    try {
+      await agent.saveState();
+    } catch (e) {
+      console.error("[storyboard] saveState after shotImageComplete failed:", e);
+    }
   });
 
   // 分镜图生成错误
@@ -173,11 +204,15 @@ router.ws("/", async (ws, req) => {
           break;
         case "cleanHistory":
           agent.history = [];
+          agent.setState({ segments: [], shots: [], shotIdCounter: 0 });
+          await agent.saveState();
           await u
             .db("t_chatHistory")
             .where({ projectId: Number(projectId) })
             .del();
-          ws.send(JSON.stringify({ type: "notice", data: "历史记录已清空" }));
+          ws.send(JSON.stringify({ type: "segmentsUpdated", data: [] }));
+          ws.send(JSON.stringify({ type: "shotsUpdated", data: [] }));
+          ws.send(JSON.stringify({ type: "notice", data: "历史记录已清空，可重新开始制作" }));
           break;
         case "generateShotImage":
           agent.history = [];

@@ -12,15 +12,21 @@ export default router.post(
   validateFields({
     projectId: z.number(),
     type: z.string(),
+    scriptId: z.number().optional(),
   }),
   async (req, res) => {
-    const { projectId, type } = req.body;
+    const { projectId, type, scriptId } = req.body;
     const accountId = getAccountId(req);
     if (!accountId) return res.status(401).send({ message: "未登录" });
     const project = await getProjectForAccount(accountId, projectId);
     if (!project) return res.status(404).send({ message: "项目不存在" });
 
-    const data = await u.db("t_assets").where("projectId", projectId).where("type", type).select("*");
+    let query = u.db("t_assets").where("projectId", projectId).where("type", type);
+    // 传入 scriptId 时：仅返回该剧本关联资产（本集 + 项目级 scriptId 为空）
+    if (scriptId != null) {
+      query = query.andWhere((builder: any) => builder.where("scriptId", scriptId).orWhereNull("scriptId"));
+    }
+    const data = await query.select("*");
 
     for (const item of data) {
       if (item.filePath) {

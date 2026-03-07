@@ -59,6 +59,18 @@ const modelList: Owned[] = [
     grid: true,
     type: "ti2i",
   },
+  {
+    manufacturer: "runninghub",
+    model: "nanobanana2",
+    grid: true,
+    type: "ti2i",
+  },
+  {
+    manufacturer: "runninghub",
+    model: "rhart-image-n-g31-flash",
+    grid: true,
+    type: "ti2i",
+  },
   // ZZGF
   {
     manufacturer: "zzgf",

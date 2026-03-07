@@ -517,6 +517,53 @@ ${sections.join("\n\n")}
     return this.shots;
   }
 
+  /**
+   * 获取可持久化的分镜版块状态（片段 + 分镜含生成图）
+   */
+  getState(): { segments: Segment[]; shots: Shot[]; shotIdCounter: number } {
+    return {
+      segments: this.segments,
+      shots: this.shots,
+      shotIdCounter: this.shotIdCounter,
+    };
+  }
+
+  /**
+   * 从持久化数据恢复分镜版块状态
+   */
+  setState(state: { segments?: Segment[]; shots?: Shot[]; shotIdCounter?: number }): void {
+    if (state.segments) this.segments = state.segments;
+    if (state.shots) this.shots = state.shots;
+    if (state.shotIdCounter != null) this.shotIdCounter = state.shotIdCounter;
+  }
+
+  /**
+   * 将当前分镜状态保存到数据库（按 scriptId 写入 t_script.storyboardState）
+   * 空状态也会写入，便于「重新开始制作」时覆盖旧数据
+   */
+  async saveState(): Promise<void> {
+    const state = this.getState();
+    await u
+      .db("t_script")
+      .where({ id: this.scriptId, projectId: this.projectId })
+      .update({ storyboardState: JSON.stringify(state) });
+  }
+
+  /**
+   * 从数据库加载并恢复分镜状态（若有）
+   */
+  async loadState(): Promise<boolean> {
+    const row = await u.db("t_script").where({ id: this.scriptId, projectId: this.projectId }).select("storyboardState").first();
+    if (!row?.storyboardState) return false;
+    try {
+      const state = JSON.parse(row.storyboardState);
+      this.setState(state);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   // ==================== 上下文构建 ====================
 
   private async buildEnvironmentContext(): Promise<string> {

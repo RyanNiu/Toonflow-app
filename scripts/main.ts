@@ -1,6 +1,5 @@
 import { app, BrowserWindow, dialog } from "electron";
 import path from "path";
-import { pathToFileURL } from "url";
 import fs from "fs";
 
 // ─── 最顶层的全局异常捕获（确保任何致命崩溃都会弹窗） ───────────────────────
@@ -97,20 +96,12 @@ function createMainWindow(port: any): void {
       },
     });
 
-    const isDev = process.env.NODE_ENV === "dev" || !app.isPackaged;
-    const htmlPath = isDev
-      ? path.join(process.cwd(), "scripts", "web", "index.html")
-      : path.join(app.getAppPath(), "scripts", "web", "index.html");
-
-    log(`htmlPath: ${htmlPath} (Exists: ${fs.existsSync(htmlPath)})`);
-
+    // 通过后端 http 加载前端，避免 file:// 下 Vue Router 白屏
     const baseUrl = `http://localhost:${port}`;
     const wsBaseUrl = `ws://localhost:${port}`;
-    const url = pathToFileURL(htmlPath);
-    url.searchParams.set("baseUrl", baseUrl);
-    url.searchParams.set("wsBaseUrl", wsBaseUrl);
+    const url = `${baseUrl}/?baseUrl=${encodeURIComponent(baseUrl)}&wsBaseUrl=${encodeURIComponent(wsBaseUrl)}`;
 
-    log(`准备加载 URL: ${url.toString()}`);
+    log(`准备加载 URL: ${url}`);
 
     win.on("ready-to-show", () => {
       log("窗口 ready-to-show，显示窗口");

@@ -67,6 +67,7 @@ export default async (knex: Knex): Promise<void> => {
   };
 
   //添加字段
+  await addColumn("t_script", "storyboardState", "text");
   await addColumn("t_video", "time", "integer");
   await addColumn("t_video", "aiConfigId", "integer");
   await addColumn("t_config", "modelType", "text");
@@ -103,6 +104,16 @@ export default async (knex: Knex): Promise<void> => {
       table.unique(["id"]);
       table.unique(["accountId"]);
     });
+  }
+
+  // runninghub 图像模型：补充 nanobanana2、rhart-image-n-g31-flash（已有库需迁移）
+  if (await knex.schema.hasTable("t_imageModel")) {
+    for (const model of ["nanobanana2", "rhart-image-n-g31-flash"]) {
+      const exists = await knex("t_imageModel").where({ manufacturer: "runninghub", model }).first();
+      if (!exists) {
+        await knex("t_imageModel").insert({ manufacturer: "runninghub", model, grid: 1, type: "ti2i" });
+      }
+    }
   }
 
   //更正字段

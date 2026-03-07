@@ -13,7 +13,7 @@ export default router.post(
     filePath: z.object(),
     prompt: z.string(),
     projectId: z.number(),
-    assetsId: z.any(),
+    assetsId: z.any().optional(),
   }),
   async (req, res) => {
     const { filePath, prompt, projectId, assetsId } = req.body;
@@ -21,8 +21,8 @@ export default router.post(
     if (!accountId) return res.status(401).send({ message: "未登录" });
     const project = await getProjectForAccount(accountId, projectId);
     if (!project) return res.status(404).send({ message: "项目不存在" });
-    if (assetsId) {
-      const asset = await u.db("t_assets").where({ id: assetsId, projectId }).first();
+    if (assetsId != null && Number(assetsId) > 0) {
+      const asset = await u.db("t_assets").where({ id: Number(assetsId), projectId }).first();
       if (!asset) return res.status(404).send({ message: "分镜不存在" });
     }
     //拿到图片尺寸
@@ -36,10 +36,10 @@ export default router.post(
       id: null,
       url: null,
     };
-    if (assetsId) {
+    if (assetsId != null && Number(assetsId) > 0) {
       const [id] = await u.db("t_image").insert({
         filePath: data,
-        assetsId: assetsId,
+        assetsId: Number(assetsId),
       });
       returnData.id = id!;
     }

@@ -118,6 +118,7 @@ export default async (knex: Knex, forceInit: boolean = false): Promise<void> => 
         table.text("content");
         table.integer("projectId");
         table.integer("outlineId");
+        table.text("storyboardState"); // 分镜版块：片段+分镜(含生成图) 的 JSON 快照，用于刷新后恢复
         table.primary(["id"]);
         table.unique(["id"]);
       },
@@ -679,6 +680,8 @@ export default async (knex: Knex, forceInit: boolean = false): Promise<void> => 
           { manufacturer: "vidu", model: "viduq1", grid: 0, type: "i2i" },
           { manufacturer: "vidu", model: "viduq2", grid: 0, type: "ti2i" },
           { manufacturer: "runninghub", model: "nanobanana", grid: 1, type: "ti2i" },
+          { manufacturer: "runninghub", model: "nanobanana2", grid: 1, type: "ti2i" },
+          { manufacturer: "runninghub", model: "rhart-image-n-g31-flash", grid: 1, type: "ti2i" },
           { manufacturer: "modelScope", model: "Qwen/Qwen-Image", grid: 1, type: "ti2i" },
           { manufacturer: "grsai", model: "nano-banana-fast", grid: 1, type: "ti2i" },
           { manufacturer: "grsai", model: "nano-banana-pro", grid: 1, type: "ti2i" },
