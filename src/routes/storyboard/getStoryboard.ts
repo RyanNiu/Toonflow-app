@@ -53,6 +53,8 @@ export default router.post(
             })
         );
 
+        // 整图（shotIndex === 0）不返回历史生成/本地上传记录，只展示主图
+        const isGridImage = Number(item.shotIndex) === 0;
         return {
           id: item.id,
           name: item.name,
@@ -65,7 +67,7 @@ export default router.post(
           duration: item.duration,
           segmentId: item.segmentId ?? 1,
           shotIndex: item.shotIndex ?? 1,
-          generateImg: imgArr,
+          generateImg: isGridImage ? [] : imgArr,
         };
       })
     );

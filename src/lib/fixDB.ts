@@ -116,6 +116,51 @@ export default async (knex: Knex): Promise<void> => {
     }
   }
 
+  // RunningHub 视频模型：补充 Vidu-参考生视频-q2（已有库需迁移）
+  if (await knex.schema.hasTable("t_videoModel")) {
+    const viduRefExists = await knex("t_videoModel")
+      .where({ manufacturer: "runninghub", model: "vidu/reference-to-video-q2" })
+      .first();
+    if (!viduRefExists) {
+      const maxId = (await knex("t_videoModel").max("id as maxId").first()) as { maxId: number | null } | undefined;
+      const nextId = (maxId?.maxId ?? 0) + 1;
+      await knex("t_videoModel").insert({
+        id: nextId,
+        manufacturer: "runninghub",
+        model: "vidu/reference-to-video-q2",
+        durationResolutionMap: JSON.stringify([{ duration: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], resolution: ["540p", "720p", "1080p"] }]),
+        aspectRatio: JSON.stringify(["16:9", "9:16", "1:1", "3:4", "4:3"]),
+        audio: 0,
+        type: JSON.stringify(["reference", "singleImage", "multiImage"]),
+      });
+    }
+  }
+
+  // 已存在的 vidu/reference-to-video-q2：时长 1～10 秒、分辨率 540p/720p/1080p
+  if (await knex.schema.hasTable("t_videoModel")) {
+    await knex("t_videoModel")
+      .where({ manufacturer: "runninghub", model: "vidu/reference-to-video-q2" })
+      .update({
+        durationResolutionMap: JSON.stringify([{ duration: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], resolution: ["540p", "720p", "1080p"] }]),
+      });
+  }
+
+  // 已存在的 vidu/reference-to-video-q2 补充多图模式
+  if (await knex.schema.hasTable("t_videoModel")) {
+    const row = await knex("t_videoModel")
+      .where({ manufacturer: "runninghub", model: "vidu/reference-to-video-q2" })
+      .first();
+    if (row && row.type) {
+      const types: string[] = typeof row.type === "string" ? JSON.parse(row.type) : row.type;
+      if (!types.includes("multiImage")) {
+        types.push("multiImage");
+        await knex("t_videoModel")
+          .where({ manufacturer: "runninghub", model: "vidu/reference-to-video-q2" })
+          .update({ type: JSON.stringify(types) });
+      }
+    }
+  }
+
   //更正字段
   await alterColumnType("t_config", "modelType", "text");
 

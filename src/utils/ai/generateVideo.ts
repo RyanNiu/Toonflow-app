@@ -51,7 +51,10 @@ const pollTask = async (
 // 上传 base64 图片到 runninghub
 const uploadBase64ToRunninghub = async (base64Image: string, apiKey: string, baseURL: string): Promise<string> => {
   try {
-    apiKey = apiKey.replace("Bearer ", "");
+    apiKey = (apiKey || "").replace("Bearer ", "").trim();
+    if (!apiKey) {
+      throw new Error("RunningHub API Key 未配置，请在 设置 → 视频模型 中编辑该模型并填写正确的 API Key");
+    }
     // 移除 base64 前缀
     const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, "");
     let buffer = Buffer.from(base64Data, "base64");
@@ -98,6 +101,10 @@ const uploadBase64ToRunninghub = async (base64Image: string, apiKey: string, bas
     });
 
     if (uploadRes.data.code !== 0 || !uploadRes.data.data?.download_url) {
+      const msg = uploadRes.data?.msg || "";
+      if (uploadRes.data?.code === 1 && (msg.includes("API Key") || msg.includes("ApiKey"))) {
+        throw new Error("RunningHub API Key 无效或不存在，请到 设置 → 视频模型 中检查并重新填写 API Key（在 https://www.runninghub.cn 控制台获取）");
+      }
       throw new Error(`图片上传失败: ${JSON.stringify(uploadRes.data)}`);
     }
 
@@ -159,11 +166,67 @@ const generateVideoWithConfig = async (config: VideoConfig, configItem: { model:
       return { completed: false, error: `未知状态: ${status}` };
     });
   } else if (manufacturer === "runninghub") {
-    const runninghubConfig = config as RunninghubVideoConfig;
-    // 如果有图片，先上传
+    const runninghubConfig = config as RunninghubVideoConfig & { duration?: number; aspectRatio?: string; resolution?: string };
+    const baseUrl = "https://www.runninghub.cn";
+
+    // Vidu-参考生视频-q2：支持 1～7 张参考图。接口要求 imageUrls 为可访问的 URL，需先上传再提交。
+    if (model === "vidu/reference-to-video-q2") {
+      if (!runninghubConfig.imageBase64 || runninghubConfig.imageBase64.length === 0) {
+        throw new Error("Vidu-参考生视频-q2 需要至少 1 张参考图（最多 7 张）");
+      }
+      const imageList = runninghubConfig.imageBase64.slice(0, 7);
+      const imageUrls: string[] = [];
+      for (const base64 of imageList) {
+        const url = await uploadBase64ToRunninghub(
+          typeof base64 === "string" && /^data:image\//i.test(base64) ? base64 : `data:image/png;base64,${base64}`,
+          (apiKey ?? "").replace("Bearer ", "").trim(),
+          baseUrl,
+        );
+        imageUrls.push(url);
+      }
+      const duration = runninghubConfig.duration ?? 5;
+      const aspectRatio = runninghubConfig.aspectRatio ?? "3:4";
+      // 文档要求 duration 为字符串枚举 "1"～"10"
+      const requestBody = {
+        prompt: config.prompt,
+        imageUrls,
+        aspectRatio,
+        resolution: runninghubConfig.resolution ?? "1080p",
+        duration: String(Math.min(10, Math.max(1, Number(duration) || 5))),
+        movementAmplitude: "auto",
+      };
+      const createRes = await axios.post(`${baseUrl}/openapi/v2/vidu/reference-to-video-q2`, requestBody, {
+        headers: { Authorization: "Bearer " + (apiKey ?? "").replace("Bearer ", "").trim(), "Content-Type": "application/json" },
+      });
+      const resData = createRes.data;
+      const taskId = resData?.taskId ?? resData?.data?.taskId;
+      const errorMessage = resData?.errorMessage ?? resData?.message;
+      if (!taskId) throw new Error(`视频任务创建失败: ${errorMessage || "未返回 taskId"}`);
+      if (resData?.status === "FAILED") throw new Error(`任务创建失败: ${errorMessage}`);
+      // 标准模型 API 使用 /openapi/v2/query 轮询，响应 status=SUCCESS 时 results[0].url 为视频地址
+      const authHeader = "Bearer " + (apiKey ?? "").replace("Bearer ", "").trim();
+      videoUrl = await pollTask(async () => {
+        const res = await axios.post(
+          `${baseUrl}/openapi/v2/query`,
+          { taskId },
+          { headers: { Authorization: authHeader, "Content-Type": "application/json" } },
+        );
+        const { status, results, errorMessage: errMsg } = res.data;
+        if (status === "SUCCESS" && results?.length) {
+          const url = results[0]?.url;
+          return url ? { completed: true, imageUrl: url } : { completed: false, error: "结果无 url" };
+        }
+        if (status === "FAILED") return { completed: false, error: errMsg || "任务失败" };
+        if (status === "QUEUED" || status === "RUNNING") return { completed: false };
+        return { completed: false, error: `未知状态: ${status}` };
+      });
+      return videoUrl;
+    }
+
+    // 原有 rhart-video-s 系列
     let uploadedImageUrl: string | undefined;
     if (runninghubConfig.imageBase64 && runninghubConfig.imageBase64.length > 0) {
-      uploadedImageUrl = await uploadBase64ToRunninghub(runninghubConfig.imageBase64[0]!, apiKey ?? "", "https://www.runninghub.cn");
+      uploadedImageUrl = await uploadBase64ToRunninghub(runninghubConfig.imageBase64[0]!, apiKey ?? "", baseUrl);
     }
 
     const endpoint = uploadedImageUrl ? "/openapi/v2/rhart-video-s/image-to-video" : "/openapi/v2/rhart-video-s/text-to-video";
@@ -175,7 +238,7 @@ const generateVideoWithConfig = async (config: VideoConfig, configItem: { model:
           aspectRatio: runninghubConfig.aspectRatio,
         }
       : { prompt: config.prompt, model };
-    const createRes = await axios.post(`https://www.runninghub.cn${endpoint}`, requestBody, {
+    const createRes = await axios.post(`${baseUrl}${endpoint}`, requestBody, {
       headers: { Authorization: "Bearer " + apiKey, "Content-Type": "application/json" },
     });
 
@@ -399,21 +462,49 @@ const generateVideoWithConfig = async (config: VideoConfig, configItem: { model:
       // 其他状态（submitted, processing 等）继续轮询
       return { completed: false };
     });
+  } else if (manufacturer === "zzgf") {
+    // zzgf（如 sora2pro）使用统一视频模块：提交任务 + 轮询，返回视频 URL
+    const zzgfVideo = (await import("@/utils/ai/video/owned/zzgf")).default;
+    const base = config as BaseVideoConfig & { duration?: number; aspectRatio?: string; resolution?: string; mode?: string };
+    const aspectRatio = base.aspectRatio === "adaptive" ? "16:9" : (base.aspectRatio || "16:9");
+    const videoInput = {
+      prompt: config.prompt,
+      savePath: config.savePath,
+      imageBase64: config.imageBase64 ?? [],
+      duration: (base.duration ?? 5) as 5,
+      aspectRatio: aspectRatio as "16:9" | "9:16",
+      resolution: (base.resolution as "480p" | "720p" | "1080p" | "2K" | "4K") || "720p",
+      mode: (base.mode || "single") as "startEnd" | "multi" | "single" | "text",
+    };
+    videoUrl = await zzgfVideo(videoInput, { model, apiKey, baseURL });
   } else {
     throw new Error(`不支持的厂商: ${manufacturer}`);
   }
   return videoUrl;
 };
 
-export default async (config: VideoConfig, manufacturer: string, accountId?: number) => {
+type VideoConfigItem = { model: string; apiKey: string; baseURL: string; manufacturer: string };
+
+export default async (
+  config: VideoConfig,
+  manufacturer: string,
+  accountId?: number,
+  selectedConfig?: VideoConfigItem | null,
+) => {
   if (!config.imageBase64 || config.imageBase64.length <= 0) throw new Error("未传图片");
-  const configItem = await u.getConfig("video", manufacturer, accountId);
-  if (!configItem) {
-    throw new Error("未找到任何视频配置");
+  // 优先使用用户在视频配置里选择的那条（aiConfigId），避免同厂商多条配置时用错 API Key / 模型
+  const configItem: VideoConfigItem | null = selectedConfig
+    ? {
+        model: selectedConfig.model ?? "",
+        apiKey: selectedConfig.apiKey ?? "",
+        baseURL: selectedConfig.baseURL ?? "",
+        manufacturer: selectedConfig.manufacturer ?? manufacturer,
+      }
+    : await u.getConfig("video", manufacturer, accountId);
+  if (!configItem || !configItem.apiKey) {
+    throw new Error("未找到任何视频配置或 API Key 为空");
   }
   let lastError: Error | null = null;
-  //   for (const configItem of configList) {
-  // 每个配置项重试1次，共2次尝试
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const videoUrl = await generateVideoWithConfig(config, configItem);

@@ -49,17 +49,8 @@ export default router.post(
     if (Number(configData.projectId) !== Number(projectId)) {
       return res.status(403).send(error("视频配置不属于当前项目"));
     }
-    if (configData.manufacturer == "runninghub") {
-      if (filePath.length > 1) {
-        const gridUrl = await sharpProcessingImage(filePath, projectId, accountId);
-        if (gridUrl) {
-          filePath.length = 0;
-          filePath.push(gridUrl);
-        }
-      }
-    }
 
-    // 优先使用视频配置中的AI配置ID查询,查不到再使用传入的aiConfigId
+    // 优先使用视频配置中的AI配置ID查询，以便在合并逻辑前拿到 model
     let aiConfigData = null;
     if (configData.aiConfigId) {
       aiConfigData = await u.db("t_config").where({ id: configData.aiConfigId, accountId }).first();
@@ -67,12 +58,24 @@ export default router.post(
     if (!aiConfigData) {
       aiConfigData = await u.db("t_config").where({ id: aiConfigId, accountId }).first();
     }
-
     if (!aiConfigData) {
       return res.status(500).send(error("模型配置不存在"));
     }
+
+    // RunningHub 多图时：vidu/reference-to-video-q2 支持 1～7 张不合并，其余模型合并为一张
+    let filePathList: string[] = filePath;
+    if (configData.manufacturer === "runninghub" && filePathList.length > 1) {
+      if (aiConfigData.model === "vidu/reference-to-video-q2") {
+        filePathList = filePathList.slice(0, 7);
+      } else {
+        const gridUrl = await sharpProcessingImage(filePathList, projectId, accountId);
+        if (gridUrl) {
+          filePathList = [gridUrl];
+        }
+      }
+    }
     // 过滤掉空值
-    let fileUrl = filePath.filter((p: string) => p && p.trim() !== "");
+    let fileUrl = filePathList.filter((p: string) => p && p.trim() !== "");
 
     // 处理文件路径，如果是 base64 则上传到 OSS
     if (fileUrl.length) {
@@ -197,11 +200,20 @@ ${prompt}
         prompt: inputPrompt,
         duration: duration as any,
         aspectRatio: projectData?.videoRatio as any,
+        resolution,
         audio: audioEnabled,
         mode: mode as any,
       },
       aiConfigData?.manufacturer!,
       accountId,
+      aiConfigData
+        ? {
+            model: aiConfigData.model ?? "",
+            apiKey: aiConfigData.apiKey ?? "",
+            baseURL: aiConfigData.baseUrl ?? "",
+            manufacturer: aiConfigData.manufacturer ?? "",
+          }
+        : undefined,
     );
 
     if (videoPath) {

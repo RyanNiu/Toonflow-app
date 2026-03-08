@@ -37,7 +37,9 @@ interface Shot {
   title: string;
   x: number;
   y: number;
-  cells: Array<{ src?: string; prompt?: string; id?: string }>; // 镜头数组，每个cell是一个镜头
+  /** 生成后切割前的整张宫格图 URL，导出时与切割图一并展示 */
+  gridImageUrl?: string;
+  cells: Array<{ src?: string; prompt?: string; id?: string; generateImg?: Array<{ filePath: string; id?: number }> }>; // 镜头数组；generateImg 为该镜头的生成历史
   fragmentContent: string;
   assetsTags: AssetsType[];
 }
@@ -77,8 +79,12 @@ export default class Storyboard {
     return accountId;
   }
 
-  // 更新shopts
-  public updatePreShots(segmentId: number, cellId: number, cell: { src?: string; prompt?: string; id?: string }) {
+  // 更新单个镜头的 src/prompt/id/generateImg（前端修改分镜图时调用；generateImg 为生成历史列表）
+  public updatePreShots(
+    segmentId: number,
+    cellId: number,
+    cell: { src?: string; prompt?: string; id?: string; generateImg?: Array<{ filePath: string; id?: number }> }
+  ) {
     const shotIndex = this.shots.findIndex((item) => item.segmentId === segmentId);
     if (shotIndex === -1) {
       return `分镜 ${segmentId} 不存在，请检查分镜ID是否正确`;
@@ -87,7 +93,22 @@ export default class Storyboard {
     if (cellIndex === -1) {
       return `镜头 ${cellId} 不存在，请检查镜头ID是否正确`;
     }
-    this.shots[shotIndex].cells[cellIndex] = { ...this.shots[shotIndex].cells[cellIndex], ...cell };
+    const prev = this.shots[shotIndex].cells[cellIndex];
+    this.shots[shotIndex].cells[cellIndex] = {
+      ...prev,
+      ...cell,
+      generateImg: cell.generateImg != null ? cell.generateImg : prev.generateImg,
+    };
+    this.emit("shotsUpdated", this.shots);
+  }
+
+  // 更新指定分镜的资产标签（修改分镜图时展示/编辑资产标签用）
+  public updateShotAssetsTags(shotId: number, assetsTags: AssetsType[]): boolean {
+    const shotIndex = this.shots.findIndex((item) => item.id === shotId);
+    if (shotIndex === -1) return false;
+    this.shots[shotIndex].assetsTags = assetsTags;
+    this.emit("shotsUpdated", this.shots);
+    return true;
   }
 
   // ==================== 公共方法 ====================
@@ -286,16 +307,33 @@ ${sections.join("\n\n")}
 
   /**
    * 更新指定分镜（供 shotAgent 调用）
-   * 保留原有 cells 的 id 和 src 字段，只更新 prompt
+   * 保留原有 cells 的 id 和 src 字段，只更新 prompt；可选更新资产标签
    */
   updateShots = tool({
     title: "updateShots",
-    description: "更新指定分镜的镜头提示词。通过分镜ID指定要修改的分镜",
+    description: "更新指定分镜的镜头提示词及可选资产标签。通过分镜ID指定要修改的分镜",
     inputSchema: z.object({
       shotId: z.number().describe("要更新的分镜ID"),
       prompts: z.array(z.string()).describe("新的镜头提示词数组，每个提示词对应一个镜头"),
+      assetsTags: z
+        .array(
+          z.object({
+            type: z.enum(["role", "props", "scene"]),
+            text: z.string(),
+          })
+        )
+        .optional()
+        .describe("该分镜关联的资产标签（角色/道具/场景）"),
     }),
-    execute: async ({ shotId, prompts }: { shotId: number; prompts: string[] }) => {
+    execute: async ({
+      shotId,
+      prompts,
+      assetsTags,
+    }: {
+      shotId: number;
+      prompts: string[];
+      assetsTags?: AssetsType[];
+    }) => {
       const existingIndex = this.shots.findIndex((item) => item.id === shotId);
 
       if (existingIndex === -1) {
@@ -308,13 +346,15 @@ ${sections.join("\n\n")}
       this.shots[existingIndex].cells = prompts.map((prompt, i) => {
         const existingCell = existingCells[i];
         if (existingCell) {
-          // 保留原有 cell 的 id 和 src，只更新 prompt
           return { ...existingCell, prompt };
         } else {
-          // 新增的 cell
           return { id: u.uuid(), prompt };
         }
       });
+
+      if (assetsTags != null) {
+        this.shots[existingIndex].assetsTags = assetsTags;
+      }
 
       this.log("更新分镜", `分镜 ${shotId}`);
       this.emit("shotsUpdated", this.shots);
@@ -463,8 +503,15 @@ ${sections.join("\n\n")}
       // 通知前端正在保存图片
       this.emit("shotImageGenerateProgress", { shotId, status: "saving", message: `正在保存 ${imageBuffers.length} 张镜头图片` });
 
-      // 保存分割后的镜头图片到 OSS，并获取文件路径
       const timestamp = Date.now();
+
+      // 保存整张宫格图（切割前）到 OSS，供导出列表使用
+      const gridFileName = `${this.projectId}/chat/${this.scriptId}/storyboard/shot_${shotId}_grid_${timestamp}.png`;
+      await u.oss.writeFile(gridFileName, gridImage);
+      const gridImageUrl = await u.oss.getFileUrl(gridFileName);
+      shot.gridImageUrl = gridImageUrl;
+
+      // 保存分割后的镜头图片到 OSS，并获取文件路径
       const imagePaths: string[] = [];
 
       for (let i = 0; i < imageBuffers.length; i++) {
@@ -761,6 +808,10 @@ ${task}
       .where("code", "storyboard-main")
       .first();
     const promptConfig = await u.getPromptAi("storyboardAgent", undefined, this.projectId);
+    const config = promptConfig as { apiKey?: string };
+    if (!config?.apiKey) {
+      throw new Error("请先在设置中配置分镜 Agent 使用的 AI 模型（storyboardAgent）");
+    }
 
     const mainPrompts = prompts?.customValue || prompts?.defaultValue || "不论用户说什么，请直接输出Agent配置异常";
 

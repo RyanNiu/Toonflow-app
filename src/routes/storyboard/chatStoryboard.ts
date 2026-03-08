@@ -179,7 +179,7 @@ router.ws("/", async (ws, req) => {
   // 发送初始化完成消息，通知前端可以开始发送消息
   ws.send(JSON.stringify({ type: "init", data: { projectId, scriptId } }));
 
-  type DataTyype = "msg" | "cleanHistory" | "generateShotImage" | "replaceShot";
+  type DataTyype = "msg" | "cleanHistory" | "generateShotImage" | "replaceShot" | "updateShotTags";
   ws.on("message", async function (rawData: string) {
     let data: { type: DataTyype; data: any } | null = null;
 
@@ -198,10 +198,23 @@ router.ws("/", async (ws, req) => {
     const msg = data.data;
     try {
       switch (data?.type) {
-        case "msg":
-          let prompt = msg.data;
-          if (msg.type == "user") await agent.call(prompt);
+        case "msg": {
+          const prompt = msg.data;
+          if (msg.type !== "user") break;
+          console.log("[chatStoryboard] 收到用户消息，开始调用 agent.call");
+          const callTimeoutMs = 120_000;
+          const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("AI 响应超时，请检查网络或模型配置后重试")), callTimeoutMs)
+          );
+          try {
+            await Promise.race([agent.call(prompt), timeoutPromise]);
+          } catch (callErr: any) {
+            const errMsg = callErr?.message || String(callErr) || "数据解析/脚本生成异常";
+            ws.send(JSON.stringify({ type: "error", data: errMsg }));
+            console.error("[chatStoryboard] agent.call error:", callErr);
+          }
           break;
+        }
         case "cleanHistory":
           agent.history = [];
           agent.setState({ segments: [], shots: [], shotIdCounter: 0 });
@@ -224,18 +237,31 @@ router.ws("/", async (ws, req) => {
           break;
         case "replaceShot":
           agent.updatePreShots(msg.segmentId, msg.cellId, msg.cell);
+          await agent.saveState();
+          break;
+        case "updateShotTags":
+          if (msg.shotId != null && Array.isArray(msg.assetsTags)) {
+            agent.updateShotAssetsTags(Number(msg.shotId), msg.assetsTags);
+            await agent.saveState();
+          }
           break;
         default:
           break;
       }
-    } catch (e) {
-      ws.send(JSON.stringify({ type: "error", data: "数据解析/脚本生成异常" }));
-      console.error(e);
+    } catch (e: any) {
+      const errMsg = e?.message || String(e) || "数据解析/脚本生成异常";
+      ws.send(JSON.stringify({ type: "error", data: errMsg }));
+      console.error("[chatStoryboard]", e);
     }
   });
 
   ws.on("close", async () => {
     agent?.emitter?.removeAllListeners();
+    try {
+      await agent?.saveState();
+    } catch (e) {
+      console.error("[storyboard] saveState on close failed:", e);
+    }
     await saveHistory();
   });
 

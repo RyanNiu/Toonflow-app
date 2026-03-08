@@ -452,6 +452,15 @@ const modelList: Owned[] = [
     audio: false,
   },
   // ================== RunningHub 系列 ==================
+  // Vidu-参考生视频-q2：单张或多张（最高7张）参考图生视频，支持微表情、运动幅度、运镜
+  {
+    manufacturer: "runninghub",
+    model: "vidu/reference-to-video-q2",
+    durationResolutionMap: [{ duration: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], resolution: ["540p", "720p", "1080p"] }],
+    aspectRatio: ["16:9", "9:16", "1:1", "3:4", "4:3"],
+    type: ["reference", "singleImage", "multiImage"],
+    audio: false,
+  },
   // sora
   {
     manufacturer: "runninghub",

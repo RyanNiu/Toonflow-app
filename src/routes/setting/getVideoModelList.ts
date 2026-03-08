@@ -7,7 +7,10 @@ const router = express.Router();
 export default router.post("/", async (req, res) => {
   const accountId = getAccountId(req);
   if (!accountId) return res.status(401).send({ message: "未登录" });
-  const configData = await u.db("t_config").where("type", "video").where("accountId", accountId).select("*");
-
-  res.status(200).send(success(configData));
+  let configData = await u.db("t_config").where("type", "video").where("accountId", accountId).select("*");
+  // 当前账号无配置时，回退展示 accountId=1 的配置，避免列表“不见了”
+  if (!configData?.length) {
+    configData = await u.db("t_config").where("type", "video").where("accountId", 1).select("*");
+  }
+  res.status(200).send(success(configData ?? []));
 });

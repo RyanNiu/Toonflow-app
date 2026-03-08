@@ -1229,6 +1229,15 @@ export default async (knex: Knex, forceInit: boolean = false): Promise<void> => 
             audio: 0,
             type: JSON.stringify(["singleImage", "startEndRequired", "multiImage"]),
           },
+          {
+            id: 57,
+            manufacturer: "runninghub",
+            model: "vidu/reference-to-video-q2",
+            durationResolutionMap: JSON.stringify([{ duration: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], resolution: ["540p", "720p", "1080p"] }]),
+            aspectRatio: JSON.stringify(["16:9", "9:16", "1:1", "3:4", "4:3"]),
+            audio: 0,
+            type: JSON.stringify(["reference", "singleImage", "multiImage"]),
+          },
         ]);
       },
     },

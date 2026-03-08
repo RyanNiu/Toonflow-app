@@ -10,7 +10,7 @@ const router = express.Router();
 export default router.post(
   "/",
   validateFields({
-    filePath: z.object(),
+    filePath: z.record(z.string(), z.unknown()),
     prompt: z.string(),
     projectId: z.number(),
     assetsId: z.any().optional(),
@@ -28,22 +28,24 @@ export default router.post(
     //拿到图片尺寸
     const projectInfo = await u.db("t_project").where({ id: projectId }).first();
 
-    let data = await u.editImage(filePath, prompt, projectId, projectInfo?.videoRatio!, accountId);
+    const { filePath: savedPath, prompt: usedPrompt } = await u.editImage(filePath, prompt, projectId, projectInfo?.videoRatio!, accountId);
     const returnData: {
       id: number | null;
       url: string | null;
+      prompt: string;
     } = {
       id: null,
       url: null,
+      prompt: usedPrompt,
     };
     if (assetsId != null && Number(assetsId) > 0) {
       const [id] = await u.db("t_image").insert({
-        filePath: data,
+        filePath: savedPath,
         assetsId: Number(assetsId),
       });
       returnData.id = id!;
     }
-    returnData.url = await u.oss.getFileUrl(data);
+    returnData.url = await u.oss.getFileUrl(savedPath);
 
     res.status(200).send(success(returnData));
   }

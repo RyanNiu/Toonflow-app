@@ -83,7 +83,7 @@ export default async (
   projectId: number,
   aspectRatio: string | null,
   accountId?: number,
-) => {
+): Promise<{ filePath: string; prompt: string }> => {
   const { prompt, images: base64Images } = await convertDirectiveAndImages(images, directive);
   const apiConfig = await u.getPromptAi("editImage", accountId, projectId);
 
@@ -102,5 +102,5 @@ export default async (
   const accountPrefix = accountId ? `/${accountId}` : "";
   const filePath = `${accountPrefix}/${projectId}/storyboard/${uuid()}.jpg`;
   await u.oss.writeFile(filePath, buffer);
-  return filePath;
+  return { filePath, prompt };
 };

@@ -20,7 +20,8 @@ export default async function startServe(randomPort: Boolean = false) {
   expressWs(app);
 
   app.use(logger("dev"));
-  app.use(cors({ origin: "*" }));
+  // 预检请求由 CORS 直接 204 响应，避免进入鉴权与路由，减少约 2s 延迟
+  app.use(cors({ origin: "*", optionsSuccessStatus: 204, preflightContinue: false }));
   app.use(express.json({ limit: "100mb" }));
   app.use(express.urlencoded({ extended: true, limit: "100mb" }));
 
@@ -50,6 +51,8 @@ export default async function startServe(randomPort: Boolean = false) {
     // 从 header 或 query 参数获取 token
     const rawToken = req.headers.authorization || (req.query.token as string) || "";
     const token = rawToken.replace("Bearer ", "");
+    // CORS 预检不鉴权，由 cors 中间件直接响应
+    if (req.method === "OPTIONS") return next();
     // 白名单路径
     if (req.path === "/other/login") return next();
     // 静态文件资源不需要 token（包含视频/音频/压缩包等）
@@ -142,12 +145,14 @@ export default async function startServe(randomPort: Boolean = false) {
     0,
   ];
 
+  // 明确绑定 127.0.0.1，避免本机 IPv6(::) 与前端 IPv4(localhost) 不一致导致 Network Error
+  const listenHost = process.env.LISTEN_HOST ?? "127.0.0.1";
   const tryListenOne = (port: number): Promise<number> =>
     new Promise((resolve, reject) => {
-      server = app.listen(port, () => {
+      server = app.listen(port, listenHost, () => {
         const address = server?.address();
         const realPort = typeof address === "string" ? address : (address as any)?.port;
-        console.log(`[服务启动成功]: http://localhost:${realPort}`);
+        console.log(`[服务启动成功]: http://${listenHost}:${realPort}`);
         resolve(realPort);
       });
       server.once("error", (err: NodeJS.ErrnoException) => {
